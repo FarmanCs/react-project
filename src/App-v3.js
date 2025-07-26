@@ -1,8 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import StarRating from "./StarRating";
-import { useMovie } from "./useMovie";
-import { useLocalStorageState } from "./useLocalStorageState";
-import { useKey } from "./useKey";
 
 const average = (arr) =>
   arr.reduce((acc, cur, i, arr) => acc + cur / arr.length, 0);
@@ -11,9 +8,36 @@ const KEY = "762f945d";
 
 export default function App() {
   const [query, setQuery] = useState("");
-  const { movies, isLoading, error } = useMovie(query, handleCloseMovie);
-  const [watched, setWatched] = useLocalStorageState([], "watched");
+  const [movies, setMovies] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  // const [watched, setWatched] = useState([]);
+  const [watched, setWatched] = useState(function () {
+    const localStoredValue = localStorage.getItem("watched");
+    return JSON.parse(localStoredValue);
+  });
+
   const [selectMovieId, setSelectMovieId] = useState();
+
+  //working with useEffect hook;
+  /*
+  useEffect(function () {
+    console.log("After first render ");
+  }, []);
+
+  useEffect(
+    function () {
+      console.log("While search query update... ");
+    },
+    [query]
+  );
+
+  useEffect(function () {
+    console.log("After each render");
+  });
+
+  console.log("Duering render");
+  */
 
   function handleSelectMovie(id) {
     setSelectMovieId((selecId) => (id === selecId ? null : id));
@@ -33,6 +57,61 @@ export default function App() {
     );
   }
 
+  useEffect(
+    function () {
+      localStorage.setItem("watched", JSON.stringify(watched));
+    },
+    [watched]
+  );
+
+  //useEffect hook when we try to search for move so it will give us the new result, this hook will show it on UI after each key stroke
+  useEffect(
+    function () {
+      const controller = new AbortController();
+      async function fetchMove() {
+        try {
+          setIsLoading(true);
+          setError("");
+          const res = await fetch(
+            `http://www.omdbapi.com/?apikey=${KEY}&s=${query}`,
+            { signal: controller.signal }
+          );
+
+          if (!res.ok) throw new Error("Something went wrong✈");
+
+          const data = await res.json();
+          if (data.Response === "False") throw new Error("Move not found");
+          setMovies(data.Search);
+          setError("");
+          // setQuery("");
+          // console.log(data.Search);
+        } catch (error) {
+          if (error.name !== "AbortError") {
+            setError(error.message);
+          }
+          console.error(error.message);
+        } finally {
+          setIsLoading(false); //the finaly statment or code is always be executed....
+        }
+      }
+
+      if (query.length < 3) {
+        setMovies([]);
+        setError("");
+        return;
+      }
+
+      handleCloseMovie();
+      fetchMove();
+
+      //this is called cleaning up after doing the taske
+      return function () {
+        controller.abort();
+      };
+    },
+    [query]
+  );
+
   return (
     <>
       <Navbar>
@@ -46,6 +125,15 @@ export default function App() {
             <MoviesList movies={movies} onSelectMovie={handleSelectMovie} />
           )}
           {error && <ErrorMessage message={error} />}
+
+          {/* work on this latter how does this works */}
+          {/* {isLoading ? (
+            <Loading />
+          ) : error ? (
+            <ErrorMessage message={error} />
+          ) : (
+            <MoviesList movies={movies} />
+          )} */}
         </MoveBox>
         <MoveBox>
           {selectMovieId ? (
@@ -154,7 +242,23 @@ function MovieDetail({
     onCloseMoive();
   }
 
-  useKey("Escape", onCloseMoive);
+  //useEffect hook for cleaning up the events to be hapen in this case it is addeventlisnter of keydown
+  useEffect(
+    function () {
+      function callBack(e) {
+        if (e.code === "Escape") {
+          onCloseMoive();
+          // console.log("move closed")
+        }
+      }
+      document.addEventListener("keydown", callBack);
+
+      return function () {
+        document.removeEventListener("keydown", callBack);
+      };
+    },
+    [onCloseMoive]
+  );
 
   //this effecthook will show the move after each movie is either added or deleted to this box
   useEffect(
@@ -350,12 +454,21 @@ function NumberCountForNavbar({ movies }) {
 function SearchBar({ query, setQuery }) {
   const inputEl = useRef(null);
 
-  useKey("Enter", function () {
-    if (document.activeElement === inputEl.current) return;
-    inputEl.current.focus();
-    setQuery("");
-  });
+  useEffect(
+    function () {
+      function callBack(e) {
+        if (document.activeElement === inputEl.current) return;
+        if (e.code === "Enter") {
+          inputEl.current.focus();
+          setQuery("");
+        }
+      }
+      document.addEventListener("keydown", callBack);
 
+      return () => document.addEventListener("keydown", callBack);
+    },
+    [setQuery]
+  );
   return (
     <input
       className="search"
